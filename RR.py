@@ -31,7 +31,7 @@ def load_raw_data(if_rp = False, if_rb = False, if_l = False, if_rs = False):
 	return train_data, train_targets, val_data, val_targets, test_data, test_targets
 
 
-def tokenization(train_data,val_data,test_data, min=1, max=5):
+def tokenization(train_data,val_data,test_data, min=1, max=2):
 	#val set tokens
 	print ("Tokenizing val data")
 	val_data_tokens, _ = prep.tokenize_dataset(val_data, min=min, max=max)
