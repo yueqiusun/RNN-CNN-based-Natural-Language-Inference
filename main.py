@@ -28,6 +28,45 @@ BATCH_SIZE = 100
 max_vocab_size = 20000
 MAX_SENTENCE_LENGTH = 34
 
+
+kernel_size = 3
+learning_rate = 3e-4
+hidden_size = 200
+import argparse
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run GMF.")
+    parser.add_argument('--BATCH_SIZE', type=int, default=100,
+                        help='')
+    parser.add_argument('--max_vocab_size', type=int, default=20000,
+                        help='')
+    parser.add_argument('--words_to_load', type=int, default=50000,
+                        help='')
+    parser.add_argument('--print_freq', type=int, default=200,
+                        help='')
+    parser.add_argument('--num_epochs', type=int, default=10,
+                        help='')
+    parser.add_argument('--max_vocab_size', type=int, default=20000,
+                        help='')
+    parser.add_argument('--kernel_size', type=int, default=3,
+                        help='')
+    parser.add_argument('--hidden_size', type=int, default=200,
+                        help='')
+    parser.add_argument('--learning_rate', type=float, default=3e-4,
+                        help='')
+    parser.add_argument('--model'
+                        ,help='')
+    
+    return parser.parse_args()
+args = parse_args()
+
+BATCH_SIZE = args.BATCH_SIZE
+max_vocab_size = args.max_vocab_size
+
+
+
+print("arguments: %s" %(args))
+
+
 def build_all_tokens(inp1, inp2):
     all_tokens = []
     for sent in inp1:
@@ -199,11 +238,11 @@ class RNN(nn.Module):
         self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
         self.rnn = nn.GRU(embedding_dim, hidden_size, num_layers, batch_first=True, bidirectional = True) #dim1: batch dim2: sequence dim3: emb
         self.linear1 = nn.Linear(hidden_size * 4, hidden_size * 4)
-        self.linear2 = nn.Linear(hidden_size * 2, num_classes)
+        self.linear2 = nn.Linear(hidden_size * 4, num_classes)
     def init_hidden(self, batch_size):
         # Function initializes the activation of recurrent neural net at timestep 0
         # Needs to be in format (num_layers, batch_size, hidden_size)
-        hidden = torch.randn(self.num_layers * 2, batch_size, self.hidden_size)
+        hidden = torch.randn(self.num_layers * 2, batch_size, self.hidden_size).to(device)
 
         return hidden
         
@@ -287,6 +326,9 @@ class CNN(nn.Module):
 
 def main():
     count = 9999999999
+    words_to_load = args.words_to_load
+
+
     train_x1, train_x2, train_y, MAX_SENTENCE_LENGTH, all_train_tokens  = read_data('snli_train.tsv', count = count)
     val_x1, val_x2, val_y, _, _ = read_data('snli_val.tsv', count = count)
 
@@ -303,11 +345,10 @@ def main():
     print ("Val dataset 1 size is {}".format(len(val_x1_indices)))
     print ("Val dataset 2 size is {}".format(len(val_x2_indices)))
     ft_home = './'
-    words_to_load = 50000
-    emb_dim =  300
+    
 
     with open(ft_home + 'wiki-news-300d-1M.vec') as f:
-        loaded_embeddings_ft = np.zeros((len(id2token), emb_dim))
+        loaded_embeddings_ft = np.zeros((len(id2token), 300))
         words_ft = {}
         idx2words_ft = {}
         ordered_words_ft = []
@@ -320,10 +361,12 @@ def main():
                 idx = token2id[s[0]]
                 loaded_embeddings_ft[idx] = np.asarray(s[1:])
     #if the word in vocabulary is not in fasttext(include unk and pad), we initialize a random vector.
-    mask_emb = np.zeros(len(id2token))
+    # mask_emb = np.zeros(len(id2token))
+    
     for i in range(len(id2token)):
         if loaded_embeddings_ft[i][0] == 0:
-            mask_emb[i] = 1
+
+            # mask_emb[i] = 1
             loaded_embeddings_ft[i] = np.zeros((emb_dim, ))
 
     #data loader
@@ -338,12 +381,11 @@ def main():
                                                batch_size=BATCH_SIZE,
                                                collate_fn=SNLI_collate_func,
                                                shuffle=True)
-
-    kernel_size = 3
-    learning_rate = 3e-4
-    num_epochs = 2
-    hidden_size = 200
-
+    print('Data Loaded')
+    kernel_size = args.kernel_size
+    learning_rate = args.learning_rate
+    num_epochs = args.num_epochs
+    hidden_size = args.hidden_size
     def test_model(loader, model):
         """
         Help function that tests the model's performance on a dataset
@@ -353,9 +395,10 @@ def main():
         total = 0
         model.eval()
         for data1,data2,lengths1,length2,labels in loader:
-            data1_batch, data2_batch,lengths1_batch,lengths2_batch, label_batch = \
-            data1.to(device),data2.to(device),lengths1,length2,labels.to(device)
-            outputs = F.softmax(model(data1_batch, data2_batch), dim=1)
+            data1 = data1.to(device)
+            data2 = data2.to(device)
+            labels = labels.to(device)
+            outputs = F.softmax(model(data1, data2), dim=1)
             #print('outputs.size = ', outputs.size())
             predicted = outputs.max(1, keepdim=True)[1]
 
@@ -367,11 +410,12 @@ def main():
     #         print('total= ', total)
         return (100 * correct / total)
 
+    if args.model == 'RNN'
+        model = RNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, num_layers=1, num_classes=3).to(device)
+    elif args.model == 'CNN'
+        model = CNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, kernel_size=kernel_size, num_classes=3).to(device)
 
-    model = RNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, num_layers=1, num_classes=3).to(device)
-    model = CNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, kernel_size=kernel_size, num_classes=3).to(device)
-
-
+    print('Model Built, start trainning')
      # number epoch to train
 
     # Criterion and Optimizer
@@ -380,8 +424,9 @@ def main():
 
     # Train the model
     total_step = len(train_loader)
-
+    print_freq = args.print_freq
     for epoch in range(num_epochs):
+        
         losses = AverageMeter()
         for i, (x1, x2, lengths1, lengths2, labels) in enumerate(train_loader):
             x1, x2, labels = x1.to(device), x2.to(device), labels.to(device)
@@ -394,8 +439,8 @@ def main():
             # Backward and optimize
             loss.backward()
             optimizer.step()
-            # validate every 100 iterations
-            if i > 0 and i % 100 == 0:
+            #validate every print_freq iterations
+            if i > 0 and i % print_freq == 0:
                 # validate
                 val_acc = test_model(val_loader, model)
                 print(' Epoch: [{}/{}], Step: [{}/{}], Training loss: {loss.avg:.4f}, Validation Acc: {}'.format(

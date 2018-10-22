@@ -6,3 +6,4 @@ class Hyperparameter:
 	dummy2int = {'contradiction': 0, 'entailment': 1, 'neutral': 2}
 	BATCH_SIZE = 32
 	MAX_SENTENCE_LENGTH = 800
+	
