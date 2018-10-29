@@ -1,4 +1,6 @@
 import torch
+import os
+import matplotlib.pyplot as plt
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
     if is_best:
@@ -45,3 +47,23 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
+
+def train_plot(train_loss, val_loss, val_acc, fname):
+
+    if not os.path.exists('fig'):
+        os.makedirs('fig')
+    fig_dir = './fig/'
+    print(fname)
+    print(fig_dir + 'acc' + '_' + fname)
+    plt.figure()
+    plt.plot(val_acc,label='Validation Accuracy')
+    plt.legend()
+    plt.show()
+    plt.savefig(fig_dir + 'acc' + '_(' + fname + ').png')
+    plt.figure()
+    plt.plot(train_loss,label='Training Loss')
+    plt.plot(val_loss,label='Validation Loss')
+    plt.legend()
+    plt.savefig(fig_dir + 'loss'+ '_(' + fname + ').png')
+    plt.show()

@@ -15,7 +15,7 @@ from hyperparameter import Hyperparameter as hp
 
 
 import re
- 
+import os 
 from train_f import *
 
 
@@ -24,40 +24,51 @@ print(device)
 # save index 0 for unk and 1 for pad
 PAD_IDX = 0
 UNK_IDX = 1
-BATCH_SIZE = 100
-max_vocab_size = 20000
 MAX_SENTENCE_LENGTH = 34
 
+# BATCH_SIZE = 100
+# max_vocab_size = 20000
 
-kernel_size = 3
-learning_rate = 3e-4
-hidden_size = 200
+
+# kernel_size = 3
+# learning_rate = 3e-4
+# hidden_size = 200
 import argparse
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run GMF.")
+    parser.add_argument('--model'
+                    ,help='')
+    parser.add_argument('--hidden_size', type=int, default=200,
+                    help='')
+    parser.add_argument('--kernel_size', type=int, default=3,
+                    help='')
+    parser.add_argument('--mul', type = int,default = 0,help='whether to elementwise multiply two hidden layers')
+    parser.add_argument('--dropout', type = int,default = -1, help='whether to use dropout layer, and the dropping prob, -1 is not use')
+    parser.add_argument('--wd', type = float, default = 0, help='weight decay')
+    parser.add_argument('--learning_rate', type=float, default=3e-4,
+                        help='')
+
     parser.add_argument('--BATCH_SIZE', type=int, default=100,
                         help='')
     parser.add_argument('--max_vocab_size', type=int, default=20000,
                         help='')
     parser.add_argument('--words_to_load', type=int, default=50000,
                         help='')
-    parser.add_argument('--print_freq', type=int, default=200,
+    parser.add_argument('--print_freq', type=int, default=500,
                         help='')
     parser.add_argument('--num_epochs', type=int, default=10,
                         help='')
-    parser.add_argument('--max_vocab_size', type=int, default=20000,
-                        help='')
-    parser.add_argument('--kernel_size', type=int, default=3,
-                        help='')
-    parser.add_argument('--hidden_size', type=int, default=200,
-                        help='')
-    parser.add_argument('--learning_rate', type=float, default=3e-4,
-                        help='')
-    parser.add_argument('--model'
-                        ,help='')
-    
+
+
     return parser.parse_args()
 args = parse_args()
+args_str = 'hidden size = ' + str(args.hidden_size) + ', ' + \
+'kernel size = ' + str(args.kernel_size) + ', ' + \
+'mul = ' + str(args.mul) + ', ' + \
+'dropout = ' + str(args.dropout) + ', ' + \
+'wd = ' + str(args.wd) + ', ' + \
+'learning_rate = ' + str(args.learning_rate)
 
 BATCH_SIZE = args.BATCH_SIZE
 max_vocab_size = args.max_vocab_size
@@ -225,7 +236,7 @@ def create_emb_layer(weights_matrix, non_trainable=False):
 
     
 class RNN(nn.Module):
-    def __init__(self, weights_matrix, hidden_size, num_layers, num_classes):
+    def __init__(self, weights_matrix, hidden_size, num_layers, num_classes, mul, dp = -1):
         # RNN Accepts the following hyperparams:
         # emb_size: Embedding Size
         # hidden_size: Hidden Size of layer in RNN
@@ -234,11 +245,18 @@ class RNN(nn.Module):
         super(RNN, self).__init__()
 
         self.num_layers, self.hidden_size = num_layers, hidden_size
-        #self.embedding = nn.Embedding(vocab_size, emb_size, padding_idx=PAD_IDX)
         self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
+        self.mul, self.dp = mul, dp
+        if self.mul == 0:
+            self.linear1_inputsize = self.hidden_size * 4
+        else:
+            self.linear1_inputsize = self.hidden_size * 2
+
         self.rnn = nn.GRU(embedding_dim, hidden_size, num_layers, batch_first=True, bidirectional = True) #dim1: batch dim2: sequence dim3: emb
-        self.linear1 = nn.Linear(hidden_size * 4, hidden_size * 4)
-        self.linear2 = nn.Linear(hidden_size * 4, num_classes)
+        self.linear1 = nn.Sequential(nn.Linear(self.linear1_inputsize, self.linear1_inputsize), nn.ReLU())
+        if self.dp != -1:
+            self.dropout = nn.Dropout(p=dp)
+        self.linear2 = nn.Linear(self.linear1_inputsize, num_classes)
     def init_hidden(self, batch_size):
         # Function initializes the activation of recurrent neural net at timestep 0
         # Needs to be in format (num_layers, batch_size, hidden_size)
@@ -253,76 +271,101 @@ class RNN(nn.Module):
         
         self.hidden = self.init_hidden(batch_size)
 
-        # get embedding of characters
-        #embed = self.embedding(x)
-        # pack padded sequence
-        #embed = torch.nn.utils.rnn.pack_padded_sequence(embed, lengths.numpy(), batch_first=True)
-        # fprop though RNN
-#         m1 = [mask_vocab[i] for i in x1]
+        
         embed1 = self.embedding(x1)
         embed2 = self.embedding(x2)
-#         embed1 = m * e1 + (1-m) * e1.clone().detch()
-#         embed2 = m * e2 + (1-m) * e2.clone().detch()
+
         rnn_out1, self.hidden1 = self.rnn(embed1, self.hidden) #batch_size * maximum sentence length * hidden_size
         rnn_out2, self.hidden2 = self.rnn(embed2, self.hidden)
         rnn_out1_last = rnn_out1[:,-1,:]   #batch_size * hidden_size
         rnn_out2_last = rnn_out2[:,-1,:]
-        #print(rnn_out1.size())
-        rnn_out = torch.cat((rnn_out1_last, rnn_out2_last),1)  #batch_size * hidden_size*2
-        #rnn_out, _ = torch.nn.utils.rnn.pad_packed_sequence(rnn_out, batch_first=True)
-        linear_out1 = self.linear1(rnn_out)
-        logits = self.linear2(linear_out1)
-        # undo packing
-        #rnn_out, _ = torch.nn.utils.rnn.pad_packed_sequence(rnn_out, batch_first=True)
-        # sum hidden activations of RNN across time
-        #rnn_out = torch.sum(rnn_out, dim=1)
+        if self.mul != 1:
+            out_pool = torch.cat((rnn_out1_last, rnn_out2_last),1)  #batch_size * hidden_size*2
+        else:
+            out_pool = torch.mul(rnn_out1_last, rnn_out2_last)
+            
+        linear_out1 = self.linear1(out_pool)
         
-        #logits = self.linear(rnn_out)
+        if self.dp >= 0:
+            out1 = self.dropout(linear_out1)
+        else:
+            out1 = linear_out1
+        logits = self.linear2(out1)
+
         return logits
 
 
 #For the CNN, a 2-layer 1-D convolutional network with ReLU activations will suﬃce. 
 #We can perform a max-pool at the end to compress the hidden representation into a single vector.
 class CNN(nn.Module):
-    def __init__(self, weights_matrix, hidden_size, kernel_size, num_classes):
+    def __init__(self, weights_matrix, hidden_size, kernel_size, num_classes, mul, dp = -1):
 
         super(CNN, self).__init__()
 
         self.kernel_size, self.hidden_size = kernel_size, hidden_size
         self.embedding, num_embeddings, embedding_dim = create_emb_layer(weights_matrix, True)
-
+        self.mul, self.dp = mul, dp
+        if self.mul != 1:
+            self.linear1_inputsize = self.hidden_size * 2
+        else:
+            self.linear1_inputsize = self.hidden_size
+        
         self.conv = nn.Sequential(nn.Conv1d(embedding_dim, hidden_size, kernel_size=kernel_size, padding=0),
                                    nn.ReLU(),
                                   nn.Conv1d(hidden_size, hidden_size, kernel_size=kernel_size, padding=0),
                                    nn.ReLU())
-        self.linear1 = nn.Linear(hidden_size*2, hidden_size*2)
-        self.linear2 = nn.Linear(hidden_size*2, num_classes)
-    
+        self.linear1 = nn.Sequential(nn.Linear(self.linear1_inputsize, self.linear1_inputsize), nn.ReLU())
+        if dp >= 0:
+            self.dropout = nn.Dropout(p=dp)
+
+        self.linear2 = nn.Linear(self.linear1_inputsize, num_classes)
+#             self.dropout = nn.dropout(dp)
     def forward(self, x1, x2):
         batch_size, seq_len = x1.size()
 
         embed1 = self.embedding(x1).transpose(2,1) #batch_size * embedding dim * maximum_sentence_length 
         embed2 = self.embedding(x2).transpose(2,1)
-        #print('embed.size = ', embed1.size())
         out_conv1 = self.conv(embed1)  #batch_size * embedding dim * maximum_sentence_length - 2*kernel_size + 2
         out_conv2 = self.conv(embed2) 
-        #print('out_conv1.size = ', out_conv1.size())
         out_pool1, _ = torch.max(out_conv1,dim = 2)
         out_pool2, _ = torch.max(out_conv2,dim = 2)
-        #"print('out_pool1.size = ', out_pool1.size())
-        out_pool = torch.cat((out_pool1, out_pool2), dim = 1)
+        if self.mul != 1:
+            out_pool = torch.cat((out_pool1, out_pool2), dim = 1)
+        else:
+            out_pool = torch.mul(out_pool1, out_pool2)
+            
         linear_out1 = self.linear1(out_pool)
-        logits = self.linear2(linear_out1)
-#         hidden = self.conv1(embed.transpose(1,2)).transpose(1,2)
-#         hidden = F.relu(hidden.contiguous().view(-1, hidden.size(-1))).view(batch_size, seq_len, hidden.size(-1))
-
-#         hidden = self.conv2(hidden.transpose(1,2)).transpose(1,2)
-#         hidden = F.relu(hidden.contiguous().view(-1, hidden.size(-1))).view(batch_size, seq_len, hidden.size(-1))
-
-#         hidden = torch.sum(hidden, dim=1)
-#         logits = self.linear(hidden)
+        if self.dp >= 0:
+            out1 = self.dropout(linear_out1)
+        else:
+            out1 = linear_out1
+        logits = self.linear2(out1)
         return logits
 
+def test_model(loader, model, criterion):
+    """
+    Help function that tests the model's performance on a dataset
+    @param: loader - data loader for the dataset to test against
+    """
+    correct = 0
+    total = 0
+    model.eval()
+    losses = AverageMeter()
+    for data1,data2,lengths1,length2,labels in loader:
+        data1 = data1.to(device)
+        data2 = data2.to(device)
+        labels = labels.to(device)
+        outputs = model(data1, data2)
+        outputs_softmax = F.softmax(outputs, dim=1)
+        loss = criterion(outputs, labels)
+        losses.update(loss, data1.size(0))
+        predicted = outputs_softmax.max(1, keepdim=True)[1]
+
+        total += labels.size(0)
+
+        correct += predicted.eq(labels.view_as(predicted)).sum().item()
+
+    return (100 * correct / total), losses.avg
 
 def main():
     count = 9999999999
@@ -367,7 +410,7 @@ def main():
         if loaded_embeddings_ft[i][0] == 0:
 
             # mask_emb[i] = 1
-            loaded_embeddings_ft[i] = np.zeros((emb_dim, ))
+            loaded_embeddings_ft[i] = np.zeros((300, ))
 
     #data loader
     train_dataset = SNLIDataset(train_x1_indices, train_x2_indices,train_y)
@@ -382,51 +425,34 @@ def main():
                                                collate_fn=SNLI_collate_func,
                                                shuffle=True)
     print('Data Loaded')
+
     kernel_size = args.kernel_size
     learning_rate = args.learning_rate
     num_epochs = args.num_epochs
     hidden_size = args.hidden_size
-    def test_model(loader, model):
-        """
-        Help function that tests the model's performance on a dataset
-        @param: loader - data loader for the dataset to test against
-        """
-        correct = 0
-        total = 0
-        model.eval()
-        for data1,data2,lengths1,length2,labels in loader:
-            data1 = data1.to(device)
-            data2 = data2.to(device)
-            labels = labels.to(device)
-            outputs = F.softmax(model(data1, data2), dim=1)
-            #print('outputs.size = ', outputs.size())
-            predicted = outputs.max(1, keepdim=True)[1]
+    print_freq = args.print_freq
+    mul = args.mul
+    dp = args.dropout
+    wd = args.wd
+    if args.model == 'RNN':
+        model = RNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, num_layers=1, num_classes=3, mul = mul, dp = dp).to(device)
 
-            total += labels.size(0)
-            #print('labels.size = ', labels.size())
-            #print('predicted.size = ', predicted.size())
-            correct += predicted.eq(labels.view_as(predicted)).sum().item()
-    #         print('correct = ', correct)
-    #         print('total= ', total)
-        return (100 * correct / total)
-
-    if args.model == 'RNN'
-        model = RNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, num_layers=1, num_classes=3).to(device)
-    elif args.model == 'CNN'
-        model = CNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, kernel_size=kernel_size, num_classes=3).to(device)
+    elif args.model == 'CNN':
+        model = CNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, kernel_size=kernel_size, num_classes=3, mul = mul, dp = dp).to(device)
 
     print('Model Built, start trainning')
-     # number epoch to train
+    # Criterion and Optimizer
 
     # Criterion and Optimizer
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay = wd)
 
     # Train the model
     total_step = len(train_loader)
-    print_freq = args.print_freq
+    train_losses = []
+    val_losses = []
+    val_accs = []
     for epoch in range(num_epochs):
-        
         losses = AverageMeter()
         for i, (x1, x2, lengths1, lengths2, labels) in enumerate(train_loader):
             x1, x2, labels = x1.to(device), x2.to(device), labels.to(device)
@@ -439,14 +465,18 @@ def main():
             # Backward and optimize
             loss.backward()
             optimizer.step()
-            #validate every print_freq iterations
-            if i > 0 and i % print_freq == 0:
+            # validate every 100 iterations
+            if i > 0 and i % 100 == 0:
                 # validate
-                val_acc = test_model(val_loader, model)
+                val_acc, val_loss = test_model(val_loader, model, criterion)
                 print(' Epoch: [{}/{}], Step: [{}/{}], Training loss: {loss.avg:.4f}, Validation Acc: {}'.format(
                            epoch+1, num_epochs, i+1, len(train_loader), val_acc, loss = losses))
+        train_losses.append(losses.avg)
+        
+        val_losses.append(val_loss)
+        val_accs.append(val_acc)
 
-
+    train_plot(train_losses,val_losses, val_accs, fname = args_str)
 if __name__ == '__main__':
     main()
 
