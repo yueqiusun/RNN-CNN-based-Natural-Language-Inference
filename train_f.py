@@ -48,22 +48,23 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-
 def train_plot(train_loss, val_loss, val_acc, fname):
 
     if not os.path.exists('fig'):
         os.makedirs('fig')
     fig_dir = './fig/'
-    print(fname)
-    print(fig_dir + 'acc' + '_' + fname)
-    plt.figure()
-    plt.plot(val_acc,label='Validation Accuracy')
-    plt.legend()
-    plt.show()
-    plt.savefig(fig_dir + 'acc' + '_(' + fname + ').png')
+
+    # plt.figure()
+    # plt.plot(val_acc,label='Validation Accuracy')
+    # plt.legend()
+    
+    # plt.show()
+    # plt.savefig(fig_dir + 'acc' + '_(' + fname + ').png')
     plt.figure()
     plt.plot(train_loss,label='Training Loss')
     plt.plot(val_loss,label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
     plt.legend()
     plt.savefig(fig_dir + 'loss'+ '_(' + fname + ').png')
     plt.show()

@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument('--kernel_size', type=int, default=3,
                     help='')
     parser.add_argument('--mul', type = int,default = 0,help='whether to elementwise multiply two hidden layers')
-    parser.add_argument('--dropout', type = int,default = -1, help='whether to use dropout layer, and the dropping prob, -1 is not use')
+    parser.add_argument('--dropout', type = float,default = -1.0, help='whether to use dropout layer, and the dropping prob, -1 is not use')
     parser.add_argument('--wd', type = float, default = 0, help='weight decay')
     parser.add_argument('--learning_rate', type=float, default=3e-4,
                         help='')
@@ -53,22 +53,22 @@ def parse_args():
                         help='')
     parser.add_argument('--max_vocab_size', type=int, default=20000,
                         help='')
-    parser.add_argument('--words_to_load', type=int, default=50000,
+    parser.add_argument('--words_to_load', type=int, default=99990000,
                         help='')
     parser.add_argument('--print_freq', type=int, default=500,
                         help='')
     parser.add_argument('--num_epochs', type=int, default=10,
                         help='')
+    parser.add_argument('--save_model', type=int, default=0,
+                        help='')
 
 
     return parser.parse_args()
 args = parse_args()
-args_str = 'hidden size = ' + str(args.hidden_size) + ', ' + \
+args_str = 'model = ' + str(args.model) + 'hidden size = ' + str(args.hidden_size) + ', ' + \
 'kernel size = ' + str(args.kernel_size) + ', ' + \
 'mul = ' + str(args.mul) + ', ' + \
-'dropout = ' + str(args.dropout) + ', ' + \
-'wd = ' + str(args.wd) + ', ' + \
-'learning_rate = ' + str(args.learning_rate)
+'dropout = ' + str(args.dropout)
 
 BATCH_SIZE = args.BATCH_SIZE
 max_vocab_size = args.max_vocab_size
@@ -434,6 +434,7 @@ def main():
     mul = args.mul
     dp = args.dropout
     wd = args.wd
+    save_model = args.save_model
     if args.model == 'RNN':
         model = RNN(weights_matrix=loaded_embeddings_ft, hidden_size=hidden_size, num_layers=1, num_classes=3, mul = mul, dp = dp).to(device)
 
@@ -442,6 +443,8 @@ def main():
 
     print('Model Built, start trainning')
     # Criterion and Optimizer
+
+    
 
     # Criterion and Optimizer
     criterion = torch.nn.CrossEntropyLoss()
@@ -452,6 +455,9 @@ def main():
     train_losses = []
     val_losses = []
     val_accs = []
+    if not os.path.exists('saved_model'):
+        os.makedirs('saved_model')
+    best_acc = 0
     for epoch in range(num_epochs):
         losses = AverageMeter()
         for i, (x1, x2, lengths1, lengths2, labels) in enumerate(train_loader):
@@ -471,12 +477,17 @@ def main():
                 val_acc, val_loss = test_model(val_loader, model, criterion)
                 print(' Epoch: [{}/{}], Step: [{}/{}], Training loss: {loss.avg:.4f}, Validation Acc: {}'.format(
                            epoch+1, num_epochs, i+1, len(train_loader), val_acc, loss = losses))
-        train_losses.append(losses.avg)
-        
+                if val_acc > best_acc:
+                    best_acc = val_acc
+                    if save_model > 0:    
+                        torch.save(model, './saved_model/rnn.pth')
+
+        train_losses.append(losses.avg)   
         val_losses.append(val_loss)
         val_accs.append(val_acc)
 
     train_plot(train_losses,val_losses, val_accs, fname = args_str)
+    print('best_acc = ' + str(best_acc))
 if __name__ == '__main__':
     main()
 
